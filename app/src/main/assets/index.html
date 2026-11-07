@@ -363,8 +363,15 @@ const Native = (()=>{
   return {has, call};
 })();
 
+// PC용 실행기(multiview_pc.py)로 열었을 때: 로컬 프록시가 대신 요청
+const LOCAL_PROXY = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+
 async function httpReq(url, method='GET', headers={}, body=null){
   if(Native.has) return Native.call({type:'http', url, method, headers, body});
+  if(LOCAL_PROXY){
+    const r = await fetch('/__proxy', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({url, method, headers, body})});
+    return await r.json();
+  }
   const r = await fetch(url, {method, headers, body}); // 앱 밖(일반 브라우저)에서는 CORS 때문에 동작 안 함
   return {status:r.status, url:r.url, text:await r.text()};
 }
@@ -382,7 +389,7 @@ const YT_HEADERS = {
   'Accept-Language':'ko-KR,ko;q=0.9,en;q=0.5',
   'Cookie':'CONSENT=YES+cb; SOCS=CAI'
 };
-const YT_CFG = {key:null, ver:'2.20241101.00.00'};
+const YT_CFG = {key:null, ver:'2.20241101.00.00', ctx:null, visitor:null};
 const PLAYER_MARKERS = ['var ytInitialPlayerResponse = ', 'ytInitialPlayerResponse = '];
 const DATA_MARKERS = ['var ytInitialData = ', 'window["ytInitialData"] = ', 'ytInitialData = '];
 
@@ -391,13 +398,24 @@ async function ytGet(url){
   if(r.status<200 || r.status>=400) throw new Error(r.status<0 ? r.text : `HTTP ${r.status}`);
   const k = r.text.match(/"INNERTUBE_API_KEY":"([^"]+)"/); if(k) YT_CFG.key = k[1];
   const v = r.text.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/); if(v) YT_CFG.ver = v[1];
+  // 유튜브 웹이 실제로 쓰는 요청 정보(context) 그대로 저장 → 채팅 요청에 사용
+  const ctx = extractJson(r.text, ['"INNERTUBE_CONTEXT":']);
+  if(ctx && ctx.client){ YT_CFG.ctx = ctx; if(ctx.client.visitorData) YT_CFG.visitor = ctx.client.visitorData; }
   return r;
 }
 async function ytPost(path, payload){
   const url = `https://www.youtube.com/youtubei/v1/${path}?prettyPrint=false${YT_CFG.key?'&key='+YT_CFG.key:''}`;
-  const body = JSON.stringify({context:{client:{clientName:'WEB', clientVersion:YT_CFG.ver, hl:'ko', gl:'KR'}}, ...payload});
-  const r = await httpReq(url, 'POST', {...YT_HEADERS, 'Content-Type':'application/json'}, body);
-  if(r.status<200 || r.status>=400) throw new Error(r.status<0 ? r.text : `HTTP ${r.status}`);
+  const context = YT_CFG.ctx || {client:{clientName:'WEB', clientVersion:YT_CFG.ver, hl:'ko', gl:'KR'}};
+  const body = JSON.stringify({context, ...payload});
+  const headers = {...YT_HEADERS, 'Content-Type':'application/json',
+    'Origin':'https://www.youtube.com', 'X-Youtube-Client-Name':'1', 'X-Youtube-Client-Version':YT_CFG.ver};
+  if(YT_CFG.visitor) headers['X-Goog-Visitor-Id'] = YT_CFG.visitor;
+  const r = await httpReq(url, 'POST', headers, body);
+  if(r.status<200 || r.status>=400){
+    let why = ''; try{ why = JSON.parse(r.text)?.error?.message || ''; }catch(e){}
+    const err = new Error(r.status<0 ? r.text : `HTTP ${r.status}${why?' '+why:''}`);
+    err.status = r.status; throw err;
+  }
   return JSON.parse(r.text);
 }
 
@@ -706,6 +724,8 @@ async function initChatTracking(ch){
     const w = await fetchWatch(ch.videoId);
     if(!w.videoId){ log(`${ch.videoId}: 영상 정보를 찾을 수 없음`, true); return; }
     applyWatchInfo(ch, w);
+    // 채팅 전용 페이지(팝업 채팅창)에서 받은 토큰을 우선 사용, 실패하면 watch 페이지 토큰
+    try{ const c = await fetchChatCont(ch.videoId); if(c) w.chatCont = c; }catch(e){}
     if(!w.chatCont){ log(`${ch.name}: 현재 라이브 채팅이 활성화되어 있지 않음`, true); updateInfoPanels(); return; }
     ch.liveChatId = w.chatCont;
     ch.lastTs = 0;
@@ -713,6 +733,16 @@ async function initChatTracking(ch){
   }catch(err){
     log(`${ch.videoId}: 정보 가져오기 실패 (${err.message})`, true);
   }
+}
+
+async function fetchChatCont(videoId){
+  const r = await ytGet(`https://www.youtube.com/live_chat?is_popout=1&v=${videoId}&hl=ko`);
+  const lcr = findKey(extractJson(r.text, DATA_MARKERS), 'liveChatRenderer');
+  if(!lcr) return null;
+  const items = findKey(lcr, 'subMenuItems'); // [1] = 전체 채팅
+  const c0 = lcr.continuations?.[0] || {};
+  return items?.[1]?.continuation?.reloadContinuationData?.continuation
+      || (c0.invalidationContinuationData || c0.timedContinuationData || c0.reloadContinuationData)?.continuation || null;
 }
 
 async function pollChat(ch){
@@ -730,6 +760,7 @@ async function pollChat(ch){
     const c0 = lcc.continuations?.[0] || {};
     const next = (c0.invalidationContinuationData || c0.timedContinuationData || c0.reloadContinuationData)?.continuation;
     if(next) ch.liveChatId = next;
+    ch._retry = 0;
     let count = 0;
     (lcc.actions||[]).forEach(a=>{
       const it = a.addChatItemAction?.item;
@@ -745,7 +776,16 @@ async function pollChat(ch){
     const wasHot = ch.hot;
     ch.hot = ratePerMin >= 8;
     if(ch.hot && !wasHot) log(`${ch.name} 활동 급증 (${ratePerMin}/분)`, true);
-  }catch(e){ log(`${ch.name} 채팅 확인 네트워크 오류: ${e.message}`, true); }
+  }catch(e){
+    log(`${ch.name} 채팅 확인 네트워크 오류: ${e.message}`, true);
+    // 400/403/404 = 토큰이 거절됨 → 새 토큰으로 다시 연결 (3번까지)
+    if([400,403,404].includes(e.status)){
+      ch._retry = (ch._retry||0) + 1;
+      ch.liveChatId = null;
+      if(ch._retry <= 3){ log(`${ch.name} 채팅 다시 연결 시도 (${ch._retry}/3)`); initChatTracking(ch); }
+      else log(`${ch.name} 채팅 연결 실패 — 영상은 계속 보이고 활동량만 꺼짐`, true);
+    }
+  }
   finally{ ch._polling = false; }
 }
 
