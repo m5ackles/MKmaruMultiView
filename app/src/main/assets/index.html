@@ -1,0 +1,1130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>MULTIVIEW / MONITOR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#0B0E11;
+    --panel:#14181D;
+    --panel2:#181D23;
+    --line:#232830;
+    --text:#D7DCE1;
+    --muted:#7A8391;
+    --signal:#3ED598;
+    --spike:#F5A623;
+    --danger:#E5484D;
+  }
+  *{box-sizing:border-box;}
+  html{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Segoe UI",Pretendard,"Noto Sans KR",sans-serif;
+    height:100vh; height:100dvh; overflow:hidden;
+  }
+  .mono{font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;}
+  #app{display:flex; flex-direction:column; height:100vh; height:100dvh;}
+  #stage{padding:14px; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; flex:1; min-height:0; display:flex; flex-direction:column; gap:10px;}
+  #topbar{display:flex; align-items:center; gap:10px; padding:2px 4px 6px; flex-wrap:wrap;}
+  #topbar .brand{font-weight:700; letter-spacing:.06em; font-size:13px; color:var(--muted);}
+  #topbar .brand b{color:var(--text);}
+  #topbar .addbox{display:flex; gap:6px; margin-left:auto; flex:1 1 auto; min-width:0;}
+  #broadcastModeBtn{
+    background:var(--panel2); border:1px solid var(--line); color:var(--muted);
+    border-radius:20px; padding:6px 12px; font-size:11.5px; font-weight:600; cursor:pointer;
+  }
+  #broadcastModeBtn.on{ background:var(--danger); border-color:var(--danger); color:#2a0505; }
+  #refreshVideosBtn{
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    border-radius:20px; padding:6px 12px; font-size:11.5px; font-weight:600; cursor:pointer;
+  }
+  #refreshVideosBtn:active{ border-color:var(--signal); color:var(--signal); }
+  input[type=text], input[type=password]{
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:7px 10px; font-size:12.5px; outline:none;
+  }
+  input[type=text]:focus, input[type=password]:focus{border-color:var(--signal);}
+  button{
+    background:var(--panel2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:7px 11px; font-size:12.5px; cursor:pointer;
+  }
+  button:hover{border-color:#3a4048;}
+  button.primary{background:var(--signal); color:#06110C; border-color:var(--signal); font-weight:600;}
+  button.warn{background:var(--spike); color:#241a02; border-color:var(--spike); font-weight:600;}
+  button.ghost{background:transparent;}
+  #grid{
+    display:grid; gap:10px; flex:1;
+    grid-template-columns:repeat(var(--cols,2), minmax(0,1fr));
+    align-content:start;
+  }
+  .cell{
+    display:flex; flex-direction:column; gap:6px;
+    transition:grid-column .3s ease, grid-row .3s ease;
+  }
+  .cell.enlarged{ grid-column:span 2; grid-row:span 2; }
+  .tile{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    overflow:hidden; position:relative; aspect-ratio:16/9; cursor:pointer;
+    transition:box-shadow .25s ease, border-color .25s ease;
+  }
+  .tile.hot{ border-color:var(--spike); box-shadow:0 0 0 1px var(--spike), 0 0 18px -4px var(--spike); }
+  .tile iframe{width:100%; height:100%; border:0; display:block; pointer-events:none;}
+  .cell.enlarged .tile iframe{pointer-events:auto;}
+  .tile .playOverlay{
+    position:absolute; inset:0; z-index:1;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.25);
+    font-size:32px; color:rgba(255,255,255,.85); text-shadow:0 2px 6px rgba(0,0,0,.6);
+  }
+  .tile .shrinkBtn{
+    position:absolute; left:6px; top:6px; z-index:5;
+    width:30px; height:30px; border-radius:50%; display:none;
+    background:rgba(0,0,0,.65); border:1px solid var(--line);
+    align-items:center; justify-content:center; font-size:13px; color:var(--text); cursor:pointer;
+  }
+  .cell.enlarged .tile .shrinkBtn{display:flex;}
+  .cell.enlarged .tile .shrinkBtn:active{background:var(--signal); color:#06110C;}
+  .tile .ytlink{
+    position:absolute; right:6px; bottom:6px; z-index:4;
+    width:30px; height:30px; border-radius:50%;
+    background:rgba(0,0,0,.65); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    font-size:14px; text-decoration:none; color:var(--text);
+  }
+  .tile .ytlink:active{background:var(--signal); color:#06110C;}
+  .info{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:7px 8px; font-size:10.5px; position:relative;
+  }
+  .info .infohead{display:flex; align-items:flex-start; gap:6px; margin-bottom:5px;}
+  .info .titles{flex:1; min-width:0;}
+  .info .channelline{font-weight:700; font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .info .videoline{font-weight:400; font-size:10.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px;}
+  .info .close{cursor:pointer; opacity:.6; padding:0 3px; flex-shrink:0;}
+  .info .close:hover{opacity:1; color:var(--danger);}
+  .info .pulse{
+    display:flex; align-items:flex-end; gap:2px; height:20px; cursor:pointer; margin-bottom:5px;
+  }
+  .info .pulse i{flex:1; background:var(--muted); border-radius:1px 1px 0 0; opacity:.6; min-height:1px;}
+  .info .statusbar{ display:flex; flex-direction:column; gap:3px; line-height:1.4; }
+  .info .statusbar .srow{display:flex; flex-wrap:wrap; gap:5px 9px; row-gap:2px;}
+  .info .statusbar .srow span{flex-shrink:0;}
+  .info .statusbar .hotflag{color:var(--spike); font-weight:700;}
+  .info .pulseTip{
+    position:absolute; left:50%; transform:translateX(-50%); top:-4px; z-index:5;
+    background:var(--panel2); border:1px solid var(--line); border-radius:5px;
+    padding:3px 8px; font-size:10.5px; white-space:nowrap; opacity:0; pointer-events:none;
+    transition:opacity .15s ease;
+  }
+  .info .pulseTip.show{opacity:1;}
+  .tile.empty{display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px; cursor:pointer; border-style:dashed;}
+
+  #bottomPanel{
+    background:var(--panel); border-top:1px solid var(--line);
+    display:flex; flex-direction:column; flex-shrink:0;
+    height:46vh; transition:height .2s ease;
+  }
+  #bottomPanel.collapsed{ height:auto; }
+  #tabBar{ display:flex; align-items:stretch; border-bottom:1px solid var(--line); flex-shrink:0; }
+  .tabBtn{
+    flex:1; background:transparent; border:none; border-radius:0;
+    padding:11px 6px; font-size:12.5px; color:var(--muted); font-weight:600;
+    border-bottom:2px solid transparent;
+  }
+  .tabBtn.active{ color:var(--text); border-bottom-color:var(--signal); }
+  #collapseBtn{ width:38px; flex-shrink:0; background:transparent; border:none; color:var(--muted); border-radius:0; font-size:14px;}
+  #panelBody{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; min-height:0; }
+  #bottomPanel.collapsed #panelBody{ display:none; }
+  .tabPane{ display:none; flex-direction:column; height:100%; }
+  .tabPane.active{ display:flex; }
+  .sec{padding:12px 14px; border-bottom:1px solid var(--line);}
+  .sec h3{margin:0 0 8px; font-size:11px; letter-spacing:.08em; color:var(--muted); font-weight:700; text-transform:uppercase;}
+  .row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .row label{font-size:12px; flex:1; color:var(--text);}
+  .toggle{position:relative; width:36px; height:20px; background:#252b32; border-radius:20px; cursor:pointer; flex-shrink:0; transition:background .2s;}
+  .toggle::after{content:''; position:absolute; width:16px; height:16px; background:#8b95a1; border-radius:50%; top:2px; left:2px; transition:.2s;}
+  .toggle.on{background:var(--signal);}
+  .toggle.on::after{left:18px; background:#06110C;}
+  .presetlist{display:flex; flex-direction:column; gap:5px; max-height:120px; overflow:auto;}
+  #subList{ flex:1; min-height:0; max-height:none; }
+  .preset{
+    display:flex; align-items:center; gap:6px; background:var(--panel2);
+    border:1px solid var(--line); border-radius:5px; padding:5px 7px; font-size:12px;
+  }
+  .preset span{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .preset button{padding:2px 6px; font-size:11px;}
+  #log{max-height:180px; overflow:auto; padding:10px 14px; font-size:11.5px; display:flex; flex-direction:column-reverse; gap:4px; transition:max-height .2s ease;}
+  #log.collapsed{max-height:0; padding-top:0; padding-bottom:0; overflow:hidden;}
+  #log .entry{color:var(--muted); border-left:2px solid var(--line); padding-left:7px;}
+  #log .entry.spike{color:var(--spike); border-left-color:var(--spike);}
+  #log .entry .t{color:#565d66; margin-right:5px;}
+  .small{font-size:11px; color:var(--muted);}
+  select{background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:6px; padding:6px 8px; font-size:12px;}
+  #keyStatus{font-size:11px; margin-top:4px;}
+  #keyStatus.ok{color:var(--signal);}
+  #keyStatus.err{color:var(--danger);}
+  .keyrow{display:flex; gap:6px;}
+  .keyrow input{flex:1; min-width:0;}
+  #toggleKeyBtn{flex-shrink:0; padding:7px 10px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <div id="topbar">
+      <div class="brand">MULTIVIEW <b>/ MONITOR</b></div>
+      <button id="broadcastModeBtn">🔴 방송모드</button>
+      <button id="refreshVideosBtn" title="영상만 새로고침 (등록 목록은 그대로 유지)">🔄 새로고침</button>
+      <div class="addbox">
+        <input type="text" id="addInput" placeholder="유튜브 라이브 URL 또는 영상ID" style="flex:1; min-width:0;">
+        <button class="primary" id="addBtn">추가</button>
+      </div>
+    </div>
+    <div id="grid"></div>
+  </div>
+
+  <div id="bottomPanel">
+    <div id="tabBar">
+      <button class="tabBtn active" data-tab="live">현재방송</button>
+      <button class="tabBtn" data-tab="settings">설정</button>
+      <button id="collapseBtn">▾</button>
+    </div>
+    <div id="panelBody">
+      <div class="tabPane active" id="tabLive">
+        <div class="sec" style="flex:1; min-height:0; display:flex; flex-direction:column;">
+          <h3>채널 상태 <span class="small">(🟢라이브 / ⚪오프라인)</span></h3>
+          <div class="presetlist" id="subList"></div>
+        </div>
+        <div class="sec" style="border-bottom:none; flex:0 0 auto;">
+          <h3>실시간 활동 로그
+            <button class="ghost" id="logCollapseBtn" style="float:right; padding:2px 7px; font-size:10.5px;">▾</button>
+            <button class="ghost" id="exportLogBtn" style="float:right; padding:2px 7px; font-size:10.5px; margin-right:4px;">CSV</button>
+          </h3>
+        </div>
+        <div id="log"></div>
+      </div>
+
+      <div class="tabPane" id="tabSettings">
+        <div class="sec">
+          <h3>모드</h3>
+          <div class="row">
+            <label>자동 그리드 재배치<br><span class="small">활발한 화면이 자동으로 커짐</span></label>
+            <div class="toggle" id="autoGridToggle"></div>
+          </div>
+          <div class="row" id="autoGridIntervalRow" style="display:none">
+            <label>재배치 확인 주기(초)</label>
+            <input type="text" id="autoGridInterval" value="10" style="width:50px">
+          </div>
+          <div class="row">
+            <label>로테이션 재배치<br><span class="small">일정 간격으로 순서대로 확대</span></label>
+            <div class="toggle" id="rotationToggle"></div>
+          </div>
+          <div class="row" id="rotationIntervalRow" style="display:none">
+            <label>간격(초)</label>
+            <input type="text" id="rotationInterval" value="20" style="width:50px">
+          </div>
+          <div class="row">
+            <label>열 개수</label>
+            <select id="colSelect">
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
+          <div class="row">
+            <label>채팅 확인 주기(초)</label>
+            <input type="text" id="chatPollInput" value="10" style="width:50px">
+          </div>
+          <div class="small">API 키 없이 유튜브 페이지를 직접 읽어서 할당량 제한이 없어요. 다만 너무 짧게(5초 미만) 하면 유튜브가 잠시 요청을 막을 수 있어요.</div>
+        </div>
+
+        <div class="sec">
+          <h3>채널 자동감지 등록 <span class="small">(방송 시작→자동추가, 끝나면→자동제거)</span></h3>
+          <div class="row">
+            <input type="text" id="subInput" placeholder="채널 URL, @핸들, 채널ID" style="flex:1">
+            <button id="addSubBtn">등록</button>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <label>오프라인 채널 확인 주기</label>
+            <select id="monitorIntervalSelect">
+              <option value="0" selected>끔</option>
+              <option value="3">3분</option>
+              <option value="5">5분</option>
+              <option value="10">10분</option>
+              <option value="30">30분</option>
+            </select>
+          </div>
+          <div class="small">등록된 채널의 라이브 상태는 "현재방송" 탭에서 볼 수 있어요. 종료 감지는 자동으로 저렴하게 항상 돌아가고, 위 주기는 "아직 방송 안 켠 채널"을 확인하는 빈도예요.</div>
+        </div>
+
+        <div class="sec">
+          <h3>검색어 / 해시태그로 1회 추가</h3>
+          <div class="row">
+            <input type="text" id="searchTermInput" placeholder="예: 올림픽공원, #항공직찍" style="flex:1">
+            <button id="addTermBtn">추가</button>
+          </div>
+          <div class="presetlist" id="termList"></div>
+          <div class="row">
+            <button class="primary" id="searchNowBtn" style="flex:1;">지금 검색해서 추가</button>
+          </div>
+          <div class="small">24시간 라이브처럼 계속 도는 채널엔 자동주기 대신 위 "채널 자동감지"를 쓰세요. 이건 1회성 수동 검색용이에요.</div>
+        </div>
+
+        <div class="sec" style="border-bottom:none;">
+          <h3>즐겨찾기 프리셋</h3>
+          <div class="row">
+            <input type="text" id="presetName" placeholder="프리셋 이름" style="flex:1">
+            <button id="savePresetBtn">저장</button>
+          </div>
+          <div class="presetlist" id="presetList"></div>
+        </div>
+
+        <div class="sec">
+          <h3>방송모드 대체 이미지 <span class="small">(저작권 회피용)</span></h3>
+          <div class="row">
+            <input type="text" id="subImgUrl" placeholder="이미지 URL 붙여넣기" style="flex:1">
+            <button id="setSubImgUrlBtn">적용</button>
+          </div>
+          <div class="row">
+            <button id="subImgFileBtn" style="flex:1;">내 사진에서 선택</button>
+          </div>
+          <input type="file" id="subImgFileInput" accept="image/*" style="display:none">
+          <div id="subImgPreviewWrap" style="display:none; margin-top:6px;">
+            <img id="subImgPreview" style="width:100%; border-radius:6px; display:block;">
+            <div class="row" style="margin-top:6px;">
+              <button id="clearSubImgBtn" style="flex:1;">이미지 제거</button>
+            </div>
+          </div>
+          <div class="small">상단 "🔴 방송모드" 버튼을 켜면 모든 영상이 이 이미지로 바뀌고, 꺼면 다시 실제 영상이 나와요. 통계 정보는 방송모드 중에도 계속 갱신돼요.</div>
+        </div>
+
+        <div class="sec" style="border-bottom:none;">
+          <h3>설정 백업 / 복원 <span class="small">(브라우저 저장공간이 초기화될 때 대비)</span></h3>
+          <div class="row">
+            <button id="exportSettingsBtn" style="flex:1;">내보내기 (파일로 저장)</button>
+            <button id="importSettingsBtn" style="flex:1;">가져오기</button>
+          </div>
+          <input type="file" id="importFileInput" accept="application/json" style="display:none">
+          <div class="small">채널 등록 목록, 검색어, 즐겨찾기를 JSON 파일로 저장해두면, 저장공간이 날아가도 파일로 복원할 수 있어요. (API 키는 보안상 포함 안 됨)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const grid = $('#grid');
+const logEl = $('#log');
+
+function formatCount(n){
+  if(n>=100000000) return (n/100000000).toFixed(1)+'억';
+  if(n>=10000) return (n/10000).toFixed(1)+'만';
+  return n.toLocaleString('ko-KR');
+}
+function formatElapsed(startTime){
+  const sec = Math.max(0, Math.floor((Date.now()-startTime)/1000));
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+let channels = [];   // {id, videoId, name, liveChatId, rateHistory[], lastCount, lastTs, enlarged}
+let autoGrid = false;
+let rotation = false;
+let rotationInterval = 20;
+let rotationIdx = 0;
+let rotationTimer = null;
+let pollTimer = null;
+
+// ---- native bridge (Android 앱이 대신 요청 → CORS 없음, API 키 불필요) ----
+const Native = (()=>{
+  const has = typeof window.NativeBridge !== 'undefined';
+  const pending = new Map(); let seq = 0;
+  if(has) NativeBridge.onmessage = e=>{
+    const r = JSON.parse(e.data); const cb = pending.get(r.id);
+    if(cb){ pending.delete(r.id); cb(r); }
+  };
+  function call(msg){
+    return new Promise(res=>{ const id='n'+(++seq); pending.set(id,res); NativeBridge.postMessage(JSON.stringify({...msg,id})); });
+  }
+  return {has, call};
+})();
+
+async function httpReq(url, method='GET', headers={}, body=null){
+  if(Native.has) return Native.call({type:'http', url, method, headers, body});
+  const r = await fetch(url, {method, headers, body}); // 앱 밖(일반 브라우저)에서는 CORS 때문에 동작 안 함
+  return {status:r.status, url:r.url, text:await r.text()};
+}
+
+function saveTextFile(name, text, mime){
+  if(Native.has){ Native.call({type:'save', name, text, mime}).then(r=>{ if(!r.ok) log('파일 저장 실패: '+r.error, true); else log('저장됨: '+r.path); }); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], {type:mime}));
+  a.download = name; a.click();
+}
+
+// ---- YouTube page parsing (no Data API) ----
+const YT_HEADERS = {
+  'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'Accept-Language':'ko-KR,ko;q=0.9,en;q=0.5',
+  'Cookie':'CONSENT=YES+cb; SOCS=CAI'
+};
+const YT_CFG = {key:null, ver:'2.20241101.00.00'};
+const PLAYER_MARKERS = ['var ytInitialPlayerResponse = ', 'ytInitialPlayerResponse = '];
+const DATA_MARKERS = ['var ytInitialData = ', 'window["ytInitialData"] = ', 'ytInitialData = '];
+
+async function ytGet(url){
+  const r = await httpReq(url, 'GET', YT_HEADERS);
+  if(r.status<200 || r.status>=400) throw new Error(r.status<0 ? r.text : `HTTP ${r.status}`);
+  const k = r.text.match(/"INNERTUBE_API_KEY":"([^"]+)"/); if(k) YT_CFG.key = k[1];
+  const v = r.text.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/); if(v) YT_CFG.ver = v[1];
+  return r;
+}
+async function ytPost(path, payload){
+  const url = `https://www.youtube.com/youtubei/v1/${path}?prettyPrint=false${YT_CFG.key?'&key='+YT_CFG.key:''}`;
+  const body = JSON.stringify({context:{client:{clientName:'WEB', clientVersion:YT_CFG.ver, hl:'ko', gl:'KR'}}, ...payload});
+  const r = await httpReq(url, 'POST', {...YT_HEADERS, 'Content-Type':'application/json'}, body);
+  if(r.status<200 || r.status>=400) throw new Error(r.status<0 ? r.text : `HTTP ${r.status}`);
+  return JSON.parse(r.text);
+}
+
+// html 안에 박힌 JSON 객체를 괄호 짝 맞춰서 꺼냄
+function extractJson(html, markers){
+  for(const mk of markers){
+    let i = html.indexOf(mk); if(i<0) continue;
+    i = html.indexOf('{', i); if(i<0) continue;
+    let depth=0, inStr=false, esc=false;
+    for(let j=i; j<html.length; j++){
+      const c = html[j];
+      if(inStr){ if(esc) esc=false; else if(c==='\\') esc=true; else if(c==='"') inStr=false; continue; }
+      if(c==='"') inStr=true;
+      else if(c==='{') depth++;
+      else if(c==='}'){ depth--; if(depth===0){ try{ return JSON.parse(html.slice(i,j+1)); }catch(e){ break; } } }
+    }
+  }
+  return null;
+}
+function findAllKey(obj, key, limit=Infinity){
+  const out=[], stack=[obj];
+  while(stack.length && out.length<limit){
+    const o = stack.pop();
+    if(!o || typeof o!=='object') continue;
+    if(Array.isArray(o)){ for(let i=o.length-1;i>=0;i--) stack.push(o[i]); continue; }
+    if(key in o) out.push(o[key]);
+    const ks = Object.keys(o); for(let i=ks.length-1;i>=0;i--) if(ks[i]!==key) stack.push(o[ks[i]]);
+  }
+  return out;
+}
+const findKey = (obj, key)=> obj ? (findAllKey(obj, key, 1)[0] ?? null) : null;
+const textOf = t => !t ? '' : (t.simpleText ?? (t.runs||[]).map(r=>r.text).join(''));
+function parseKoCount(t){ // "1.2만명 시청 중", "3,456명", "1.2K watching"
+  const m = (t||'').replace(/,/g,'').match(/([\d.]+)\s*(천|만|억|K|M|B)?/i);
+  if(!m) return null;
+  const mult = {'천':1e3,'만':1e4,'억':1e8,'k':1e3,'m':1e6,'b':1e9}[(m[2]||'').toLowerCase()] || 1;
+  return Math.round(parseFloat(m[1])*mult);
+}
+
+function parseWatchPage(html){
+  const player = extractJson(html, PLAYER_MARKERS);
+  const data = extractJson(html, DATA_MARKERS);
+  const vd = player?.videoDetails || {};
+  const lbd = player?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails || {};
+  const owner = findKey(data, 'videoOwnerRenderer');
+  const vvc = findKey(data, 'videoViewCountRenderer');
+  let viewers = null;
+  if(vvc){
+    const t = textOf(vvc.viewCount);
+    if(vvc.isLive || /시청|watching/i.test(t)) viewers = vvc.originalViewCount ? parseInt(vvc.originalViewCount) : parseKoCount(t);
+  }
+  let chatCont = null;
+  const lcr = findKey(data, 'liveChatRenderer');
+  if(lcr){
+    const items = findKey(lcr, 'subMenuItems'); // [0]=인기채팅, [1]=전체채팅
+    chatCont = items?.[1]?.continuation?.reloadContinuationData?.continuation
+            || lcr.continuations?.[0]?.reloadContinuationData?.continuation || null;
+  }
+  const base = owner?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl || '';
+  return {
+    videoId: vd.videoId || null,
+    title: vd.title || '',
+    channelId: vd.channelId || null,
+    channelName: owner ? textOf(owner.title) : (vd.author || null),
+    handle: base.startsWith('/@') ? decodeURIComponent(base.slice(1)) : null,
+    subsText: owner ? textOf(owner.subscriberCountText).replace(/구독자\s*/,'') : '',
+    isLive: !!(vd.isLive || lbd.isLiveNow),
+    ended: !!lbd.endTimestamp,
+    startTime: lbd.startTimestamp ? Date.parse(lbd.startTimestamp) : null,
+    playable: player?.playabilityStatus?.status || null,
+    viewers, chatCont
+  };
+}
+async function fetchWatch(videoId){
+  const r = await ytGet(`https://www.youtube.com/watch?v=${videoId}&hl=ko&gl=KR`);
+  return parseWatchPage(r.text);
+}
+function applyWatchInfo(ch, w){
+  if(w.title) ch.name = w.title.slice(0,22);
+  if(w.channelId) ch.channelId = w.channelId;
+  if(w.channelName) ch.channelName = w.channelName;
+  if(w.handle) ch.handle = w.handle;
+  if(w.subsText) ch.subscribersText = w.subsText;
+  ch.online = w.isLive;
+  if(w.viewers!=null) ch.viewers = w.viewers;
+  if(w.startTime) ch.startTime = w.startTime;
+}
+
+// ---- broadcast-safe mode (substitute image instead of live video) ----
+let broadcastMode = false;
+let substituteImg = localStorage.getItem('mvm_subimg') || null;
+
+function renderSubImgPreview(){
+  const wrap = $('#subImgPreviewWrap');
+  if(substituteImg){
+    $('#subImgPreview').src = substituteImg;
+    wrap.style.display = 'block';
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+renderSubImgPreview();
+
+$('#broadcastModeBtn').addEventListener('click', ()=>{
+  broadcastMode = !broadcastMode;
+  $('#broadcastModeBtn').classList.toggle('on', broadcastMode);
+  $('#broadcastModeBtn').textContent = broadcastMode ? '🔴 방송모드 (켜짐)' : '🔴 방송모드';
+  renderGrid();
+});
+
+$('#refreshVideosBtn').addEventListener('click', ()=>{
+  renderGrid();
+  log('영상 전체 새로고침 (등록 목록/설정은 유지됨)');
+});
+
+$('#setSubImgUrlBtn').addEventListener('click', ()=>{
+  const url = $('#subImgUrl').value.trim();
+  if(!url) return;
+  substituteImg = url;
+  localStorage.setItem('mvm_subimg', substituteImg);
+  renderSubImgPreview();
+  if(broadcastMode) renderGrid();
+  $('#subImgUrl').value='';
+});
+
+$('#subImgFileBtn').addEventListener('click', ()=> $('#subImgFileInput').click());
+$('#subImgFileInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    substituteImg = reader.result;
+    try{ localStorage.setItem('mvm_subimg', substituteImg); }
+    catch(err){ log('이미지 용량이 너무 커서 저장 실패 — 더 작은 이미지를 써보세요', true); }
+    renderSubImgPreview();
+    if(broadcastMode) renderGrid();
+  };
+  reader.readAsDataURL(file);
+  e.target.value='';
+});
+
+$('#clearSubImgBtn').addEventListener('click', ()=>{
+  substituteImg = null;
+  localStorage.removeItem('mvm_subimg');
+  renderSubImgPreview();
+  if(broadcastMode) renderGrid();
+});
+
+// ---- bottom panel: tabs + collapse ----
+document.querySelectorAll('.tabBtn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.tabBtn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tabPane').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    $('#tab'+btn.dataset.tab[0].toUpperCase()+btn.dataset.tab.slice(1)).classList.add('active');
+    $('#bottomPanel').classList.remove('collapsed');
+    $('#collapseBtn').textContent = '▾';
+  });
+});
+$('#collapseBtn').addEventListener('click', ()=>{
+  const panel = $('#bottomPanel');
+  panel.classList.toggle('collapsed');
+  $('#collapseBtn').textContent = panel.classList.contains('collapsed') ? '▴' : '▾';
+});
+
+function extractVideoId(input){
+  input = input.trim();
+  if(/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
+  const m = input.match(/(?:v=|youtu\.be\/|live\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function addChannel(videoId){
+  if(channels.find(c=>c.videoId===videoId)) return;
+  const ch = {
+    id: 'c'+Date.now()+Math.random().toString(36).slice(2,6),
+    videoId, name: videoId, liveChatId:null,
+    rateHistory: new Array(24).fill(0).map(()=>({t:Date.now(), v:0})),
+    lastCount:0, lastTs:0, enlarged:false, hot:false,
+    online:null, viewers:null, peakRate:0, peakTime:null,
+    channelId:null, subscribersText:null, startTime:null, handle:null, channelName:null
+  };
+  channels.push(ch);
+  renderGrid();
+  initChatTracking(ch);
+}
+
+function removeChannel(id){
+  const ch = channels.find(c=>c.id===id);
+  if(ch) ignoredIds.add(ch.videoId);
+  channels = channels.filter(c=>c.id!==id);
+  renderGrid();
+}
+
+$('#addBtn').addEventListener('click', ()=>{
+  const v = extractVideoId($('#addInput').value);
+  if(!v){ alert('유효한 유튜브 라이브 URL/ID를 넣어주세요'); return; }
+  addChannel(v);
+  $('#addInput').value='';
+});
+$('#addInput').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#addBtn').click(); });
+
+function infoInnerHTML(ch){
+  const statusDot = ch.online===true ? '🟢 LIVE' : (ch.online===false ? '⚫ OFFLINE' : '· 확인중');
+  const viewerText = ch.viewers!=null ? `👁 ${ch.viewers.toLocaleString('ko-KR')}` : '👁 -';
+  const subsText = ch.subscribersText ? `👤 ${ch.subscribersText}` : '';
+  const peakText = ch.peakTime ? `🔥 ${new Date(ch.peakTime).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false})}(${ch.peakRate}/분)` : '🔥 -';
+  const elapsedText = ch.startTime ? `⏱ ${formatElapsed(ch.startTime)}` : '⏱ -';
+  const curRate = ch.rateHistory.at(-1)?.v||0;
+  return `
+    <div class="infohead">
+      <div class="titles">
+        <div class="channelline">${ch.channelName?ch.channelName:'채널명 확인중'}${ch.handle?` <span class="small">${ch.handle}</span>`:''}</div>
+        <div class="videoline">${ch.name}</div>
+      </div>
+      <span class="close">✕</span>
+    </div>
+    <div class="pulse">${ch.rateHistory.slice(-24).map(s=>`<i data-t="${s.t}" data-v="${s.v}" style="height:${Math.min(100,s.v*8)}%; opacity:${s.v>0?1:0.4}; background:${s.v>=8?'var(--spike)':'var(--muted)'}"></i>`).join('')}</div>
+    <div class="pulseTip mono"></div>
+    <div class="statusbar mono">
+      <div class="srow"><span>${statusDot}</span><span>${viewerText}</span>${subsText?`<span>${subsText}</span>`:''}</div>
+      <div class="srow"><span class="${ch.hot?'hotflag':''}">${peakText}</span><span class="elapsed" data-id="${ch.id}">${elapsedText}</span><span>${curRate}/분</span></div>
+    </div>
+  `;
+}
+
+function bindInfoListeners(info, ch){
+  info.querySelector('.close').addEventListener('click', ()=> removeChannel(ch.id));
+  info.querySelector('.pulse').addEventListener('click', (e)=>{
+    const pulseEl = e.currentTarget;
+    const rect = pulseEl.getBoundingClientRect();
+    const samples = ch.rateHistory.slice(-24);
+    const idx = Math.min(samples.length-1, Math.max(0, Math.floor((e.clientX-rect.left)/rect.width*samples.length)));
+    const s = samples[idx];
+    const tip = info.querySelector('.pulseTip');
+    tip.textContent = `${new Date(s.t).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})} · ${s.v}/분`;
+    tip.classList.add('show');
+    clearTimeout(tip._hideTimer);
+    tip._hideTimer = setTimeout(()=> tip.classList.remove('show'), 2000);
+  });
+}
+
+// lightweight refresh: updates stats/graph text only, never touches .tile/iframe (avoids reloading video)
+function updateInfoPanels(){
+  channels.forEach(ch=>{
+    const info = grid.querySelector(`.info[data-id="${ch.id}"]`);
+    if(!info) return;
+    info.innerHTML = infoInnerHTML(ch);
+    bindInfoListeners(info, ch);
+  });
+}
+
+function renderGrid(){
+  grid.style.setProperty('--cols', $('#colSelect').value);
+  grid.innerHTML='';
+  const renderOrder = [...channels].sort((a,b)=> (b.enlarged?1:0) - (a.enlarged?1:0));
+  renderOrder.forEach(ch=>{
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (ch.enlarged?' enlarged':'');
+
+    const tile = document.createElement('div');
+    tile.className = 'tile' + (ch.hot?' hot':'');
+    const videoArea = (broadcastMode && substituteImg)
+      ? `<img src="${substituteImg}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+      : (broadcastMode
+        ? `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:10px;">방송모드 켜짐 — 설정탭에서<br>대체 이미지를 지정해주세요</div>`
+        : `<iframe src="https://www.youtube-nocookie.com/embed/${ch.videoId}?autoplay=1&mute=${ch.enlarged?0:1}&playsinline=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`);
+    tile.innerHTML = `
+      ${videoArea}
+      <button class="shrinkBtn" title="축소">🗗</button>
+      <a class="ytlink" href="https://www.youtube.com/watch?v=${ch.videoId}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="유튜브 앱/사이트에서 열기">▶</a>
+    `;
+    tile.addEventListener('click', (e)=>{
+      if(e.target.closest('.ytlink')) return;
+      if(e.target.closest('.shrinkBtn')){ e.stopPropagation(); ch.enlarged = false; renderGrid(); return; }
+      if(rotation) return; // manual enlarge disabled during rotation
+      if(ch.enlarged) return; // already enlarged: let taps reach the player (play/seek bar) instead of toggling
+      channels.forEach(c=> c.enlarged = (c.id===ch.id));
+      renderGrid();
+    });
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    info.dataset.id = ch.id;
+    info.innerHTML = infoInnerHTML(ch);
+    bindInfoListeners(info, ch);
+
+    cell.appendChild(tile);
+    cell.appendChild(info);
+    grid.appendChild(cell);
+  });
+  const empty = document.createElement('div');
+  empty.className='tile empty';
+  empty.textContent='+ 화면 추가';
+  empty.addEventListener('click', ()=> $('#addInput').focus());
+  grid.appendChild(empty);
+}
+
+$('#colSelect').addEventListener('change', renderGrid);
+
+
+// ---- Chat activity tracking (watch 페이지 + 내부 채팅 엔드포인트, API 키 없음) ----
+// ch.liveChatId 에는 이제 채팅 continuation 토큰이 들어감
+async function initChatTracking(ch){
+  try{
+    const w = await fetchWatch(ch.videoId);
+    if(!w.videoId){ log(`${ch.videoId}: 영상 정보를 찾을 수 없음`, true); return; }
+    applyWatchInfo(ch, w);
+    if(!w.chatCont){ log(`${ch.name}: 현재 라이브 채팅이 활성화되어 있지 않음`, true); updateInfoPanels(); return; }
+    ch.liveChatId = w.chatCont;
+    ch.lastTs = 0;
+    updateInfoPanels();
+  }catch(err){
+    log(`${ch.videoId}: 정보 가져오기 실패 (${err.message})`, true);
+  }
+}
+
+async function pollChat(ch){
+  if(!ch.liveChatId || ch._polling) return;
+  ch._polling = true;
+  try{
+    const data = await ytPost('live_chat/get_live_chat', {continuation: ch.liveChatId});
+    const lcc = data?.continuationContents?.liveChatContinuation;
+    if(!lcc){
+      log(`${ch.name} 채팅 연결 끊김 (다시 연결 시도)`, true);
+      ch.liveChatId = null;
+      initChatTracking(ch);
+      return;
+    }
+    const c0 = lcc.continuations?.[0] || {};
+    const next = (c0.invalidationContinuationData || c0.timedContinuationData || c0.reloadContinuationData)?.continuation;
+    if(next) ch.liveChatId = next;
+    let count = 0;
+    (lcc.actions||[]).forEach(a=>{
+      const it = a.addChatItemAction?.item;
+      if(it && (it.liveChatTextMessageRenderer || it.liveChatPaidMessageRenderer || it.liveChatPaidStickerRenderer || it.liveChatMembershipItemRenderer)) count++;
+    });
+    const now = Date.now();
+    const elapsedMin = ch.lastTs ? (now-ch.lastTs)/60000 : 1;
+    const ratePerMin = ch.lastTs ? Math.round(count/Math.max(elapsedMin,0.2)) : 0;
+    ch.lastTs = now;
+    ch.rateHistory.push({t:now, v:ratePerMin});
+    if(ch.rateHistory.length>40) ch.rateHistory.shift();
+    if(ratePerMin > (ch.peakRate||0)){ ch.peakRate = ratePerMin; ch.peakTime = now; }
+    const wasHot = ch.hot;
+    ch.hot = ratePerMin >= 8;
+    if(ch.hot && !wasHot) log(`${ch.name} 활동 급증 (${ratePerMin}/분)`, true);
+  }catch(e){ log(`${ch.name} 채팅 확인 네트워크 오류: ${e.message}`, true); }
+  finally{ ch._polling = false; }
+}
+
+function tick(){
+  channels.forEach(ch=>{ if(ch.liveChatId) pollChat(ch); });
+  setTimeout(()=> updateInfoPanels(), 900);
+}
+let chatPollInterval = parseInt(localStorage.getItem('mvm_chatpoll'))||10;
+function startPolling(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(tick, chatPollInterval*1000);
+}
+startPolling();
+$('#chatPollInput').value = chatPollInterval;
+$('#chatPollInput').addEventListener('change', e=>{
+  chatPollInterval = Math.max(5, parseInt(e.target.value)||10);
+  localStorage.setItem('mvm_chatpoll', chatPollInterval);
+  startPolling();
+  log(`채팅 확인 주기 ${chatPollInterval}초로 변경됨`);
+});
+
+function applyAutoGrid(){
+  if(channels.length<2) return;
+  let hottest = channels.reduce((a,b)=> (b.rateHistory.at(-1)?.v||0) > (a.rateHistory.at(-1)?.v||0) ? b : a, channels[0]);
+  channels.forEach(c=> c.enlarged = (c.id===hottest.id) && (hottest.rateHistory.at(-1)?.v||0) > 0);
+  renderGrid();
+}
+
+// ---- toggles ----
+function bindToggle(id, onChange){
+  const el = $(id);
+  el.addEventListener('click', ()=>{
+    const on = !el.classList.contains('on');
+    el.classList.toggle('on', on);
+    onChange(on);
+  });
+}
+let autoGridInterval = 10;
+let autoGridTimer = null;
+function startAutoGrid(){
+  stopAutoGrid();
+  applyAutoGrid();
+  autoGridTimer = setInterval(applyAutoGrid, autoGridInterval*1000);
+}
+function stopAutoGrid(){ if(autoGridTimer){ clearInterval(autoGridTimer); autoGridTimer=null; } }
+
+bindToggle('#autoGridToggle', on=>{
+  autoGrid = on;
+  $('#autoGridIntervalRow').style.display = on?'flex':'none';
+  if(on){
+    rotation=false; $('#rotationToggle').classList.remove('on'); $('#rotationIntervalRow').style.display='none'; stopRotation();
+    startAutoGrid();
+  } else stopAutoGrid();
+});
+$('#autoGridInterval').addEventListener('change', e=>{
+  autoGridInterval = Math.max(3, parseInt(e.target.value)||10);
+  if(autoGrid) startAutoGrid();
+});
+bindToggle('#rotationToggle', on=>{
+  rotation = on;
+  $('#rotationIntervalRow').style.display = on?'flex':'none';
+  if(on){ autoGrid=false; $('#autoGridToggle').classList.remove('on'); $('#autoGridIntervalRow').style.display='none'; stopAutoGrid(); startRotation(); } else stopRotation();
+});
+$('#rotationInterval').addEventListener('change', e=>{
+  rotationInterval = Math.max(5, parseInt(e.target.value)||20);
+  if(rotation){ stopRotation(); startRotation(); }
+});
+
+function startRotation(){
+  rotationIdx = 0;
+  stopRotation();
+  rotationTimer = setInterval(()=>{
+    if(channels.length===0) return;
+    channels.forEach((c,i)=> c.enlarged = (i===rotationIdx));
+    rotationIdx = (rotationIdx+1) % channels.length;
+    renderGrid();
+  }, rotationInterval*1000);
+}
+function stopRotation(){ if(rotationTimer){ clearInterval(rotationTimer); rotationTimer=null; } }
+
+// ---- log ----
+let logRows = [];
+function log(msg, spike=false){
+  const t = new Date().toLocaleTimeString('ko-KR',{hour12:false});
+  logRows.push([t,msg]);
+  const div = document.createElement('div');
+  div.className = 'entry'+(spike?' spike':'');
+  div.innerHTML = `<span class="t mono">${t}</span>${msg}`;
+  logEl.prepend(div);
+}
+$('#exportLogBtn').addEventListener('click', ()=>{
+  const csv = '﻿time,message\n'+logRows.map(r=>`"${r[0]}","${r[1].replace(/"/g,'""')}"`).join('\n');
+  saveTextFile(`multiview-log-${Date.now()}.csv`, csv, 'text/csv');
+});
+$('#logCollapseBtn').addEventListener('click', ()=>{
+  const logPanel = $('#log');
+  logPanel.classList.toggle('collapsed');
+  $('#logCollapseBtn').textContent = logPanel.classList.contains('collapsed') ? '▴' : '▾';
+});
+
+// ---- presets (favorites) ----
+function getPresets(){ return JSON.parse(localStorage.getItem('mvm_presets')||'{}'); }
+function savePresets(p){ localStorage.setItem('mvm_presets', JSON.stringify(p)); }
+
+function renderPresets(){
+  const presets = getPresets();
+  const list = $('#presetList');
+  list.innerHTML='';
+  Object.keys(presets).forEach(name=>{
+    const row = document.createElement('div');
+    row.className='preset';
+    row.innerHTML = `<span>${name} (${presets[name].length})</span><button data-name="${name}" class="loadP">불러오기</button><button data-name="${name}" class="delP">삭제</button>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.loadP').forEach(b=> b.addEventListener('click', ()=>{
+    const ids = getPresets()[b.dataset.name] || [];
+    channels = [];
+    renderGrid();
+    ids.forEach(v=> addChannel(v));
+  }));
+  list.querySelectorAll('.delP').forEach(b=> b.addEventListener('click', ()=>{
+    const p = getPresets(); delete p[b.dataset.name]; savePresets(p); renderPresets();
+  }));
+}
+$('#savePresetBtn').addEventListener('click', ()=>{
+  const name = $('#presetName').value.trim();
+  if(!name || channels.length===0) return;
+  const p = getPresets();
+  p[name] = channels.map(c=>c.videoId);
+  savePresets(p);
+  $('#presetName').value='';
+  renderPresets();
+});
+
+// ---- keyword/hashtag search auto-add ----
+let searchTerms = JSON.parse(localStorage.getItem('mvm_terms')||'[]');
+let ignoredIds = new Set();
+let searchIntervalMin = 0;
+let searchTimer = null;
+
+function saveTerms(){ localStorage.setItem('mvm_terms', JSON.stringify(searchTerms)); }
+
+function renderTerms(){
+  const list = $('#termList');
+  list.innerHTML='';
+  searchTerms.forEach(term=>{
+    const row = document.createElement('div');
+    row.className='preset';
+    row.innerHTML = `<span>${term}</span><button data-term="${term}" class="delTerm">✕</button>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.delTerm').forEach(b=> b.addEventListener('click', ()=>{
+    searchTerms = searchTerms.filter(t=>t!==b.dataset.term);
+    saveTerms(); renderTerms();
+  }));
+}
+
+$('#addTermBtn').addEventListener('click', ()=>{
+  const v = $('#searchTermInput').value.trim();
+  if(!v || searchTerms.includes(v)) return;
+  searchTerms.push(v);
+  saveTerms(); renderTerms();
+  $('#searchTermInput').value='';
+});
+$('#searchTermInput').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#addTermBtn').click(); });
+
+async function searchLiveByTerm(term){
+  try{
+    // sp=EgJAAQ== : 유튜브 검색 필터 "실시간"
+    const r = await ytGet(`https://www.youtube.com/results?search_query=${encodeURIComponent(term)}&sp=EgJAAQ%253D%253D&hl=ko&gl=KR`);
+    const data = extractJson(r.text, DATA_MARKERS);
+    const isLiveR = v => (v.badges||[]).some(b=>/LIVE/.test(b.metadataBadgeRenderer?.style||''))
+      || (v.thumbnailOverlays||[]).some(o=>o.thumbnailOverlayTimeStatusRenderer?.style==='LIVE')
+      || !v.lengthText;
+    const top = findAllKey(data, 'videoRenderer', 40)
+      .filter(v=>v && v.videoId && isLiveR(v))
+      .map(v=>({videoId:v.videoId, viewers:parseKoCount(textOf(v.viewCountText))||0}))
+      .sort((a,b)=>b.viewers-a.viewers)
+      .slice(0,5);
+    let added = 0;
+    top.forEach(item=>{
+      const vid = item.videoId;
+      if(!vid || ignoredIds.has(vid) || channels.find(c=>c.videoId===vid)) return;
+      addChannel(vid);
+      added++;
+    });
+    log(`"${term}" 검색 → 새 라이브 ${added}개 추가`);
+  }catch(e){
+    log(`"${term}" 검색 실패`, true);
+  }
+}
+
+async function runSearch(){
+  if(searchTerms.length===0){ log('등록된 검색어/해시태그가 없음', true); return; }
+  for(const term of searchTerms){ await searchLiveByTerm(term); }
+}
+
+$('#searchNowBtn').addEventListener('click', runSearch);
+
+// ---- channel subscription auto-detect (cheap end-check + gated live-check) ----
+let subs = JSON.parse(localStorage.getItem('mvm_subs')||'[]'); // {channelId, label, live:bool}
+let monitorIntervalMin = 0;
+let monitorTimer = null;
+let endCheckTimer = null;
+
+function saveSubs(){ localStorage.setItem('mvm_subs', JSON.stringify(subs)); }
+
+function renderSubs(){
+  const list = $('#subList');
+  list.innerHTML='';
+  subs.forEach(s=>{
+    const row = document.createElement('div');
+    row.className='preset';
+    row.innerHTML = `<span class="subLabel" data-cid="${s.channelId}" style="cursor:pointer;">${s.label} ${s.live?'🟢':'⚪'}</span><button data-cid="${s.channelId}" class="delSub">✕</button>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.subLabel').forEach(el=> el.addEventListener('click', async ()=>{
+    const sub = subs.find(s=>s.channelId===el.dataset.cid);
+    if(!sub) return;
+    el.textContent = sub.label+' 확인중...';
+    await checkSubLive(sub);
+  }));
+  list.querySelectorAll('.delSub').forEach(b=> b.addEventListener('click', ()=>{
+    subs = subs.filter(s=>s.channelId!==b.dataset.cid);
+    saveSubs(); renderSubs();
+  }));
+}
+
+async function readChannelPage(path){
+  try{
+    const r = await ytGet('https://www.youtube.com'+path+'?hl=ko');
+    const md = findKey(extractJson(r.text, DATA_MARKERS), 'channelMetadataRenderer');
+    if(md && md.externalId) return {channelId:md.externalId, label:md.title||md.externalId};
+    const m = r.text.match(/"externalId":"(UC[a-zA-Z0-9_-]{22})"/);
+    return m ? {channelId:m[1], label:m[1]} : null;
+  }catch(e){ return null; } // 404 등 → 다음 방법 시도
+}
+
+async function resolveChannel(input){
+  input = input.trim().split(/[?#]/)[0].replace(/\/$/,'');
+  const safeDec = s=>{ try{ return decodeURIComponent(s); }catch(e){ return s; } };
+  const m = input.match(/(UC[a-zA-Z0-9_-]{22})/);
+  if(m) return (await readChannelPage(`/channel/${m[1]}`)) || {channelId:m[1], label:m[1]};
+
+  let slug = input.replace(/^https?:\/\/(www\.|m\.)?youtube\.com\//,'').replace(/^@/,'');
+  if(!slug) return null;
+  const legacy = slug.match(/^(c|user)\/([^/]+)/);
+  if(legacy){
+    const info = await readChannelPage(`/${legacy[1]}/${encodeURIComponent(safeDec(legacy[2]))}`);
+    if(info) return info;
+    slug = legacy[2];
+  }
+  slug = safeDec(slug.split('/')[0]);
+
+  // @핸들로 먼저 시도
+  const byHandle = await readChannelPage('/@'+encodeURIComponent(slug));
+  if(byHandle) return byHandle;
+
+  // 이름으로 채널 검색 (sp=EgIQAg== : 채널 필터)
+  const r = await ytGet(`https://www.youtube.com/results?search_query=${encodeURIComponent(slug)}&sp=EgIQAg%253D%253D&hl=ko`);
+  const cr = findKey(extractJson(r.text, DATA_MARKERS), 'channelRenderer');
+  return cr && cr.channelId ? {channelId:cr.channelId, label:textOf(cr.title)||cr.channelId} : null;
+}
+
+$('#addSubBtn').addEventListener('click', async ()=>{
+  const v = $('#subInput').value.trim();
+  if(!v) return;
+  let info;
+  try{ info = await resolveChannel(v); }
+  catch(e){ log(`채널 조회 오류: ${e.message}`, true); return; }
+  if(!info){ log('채널을 찾을 수 없음: '+v, true); return; }
+  if(subs.find(s=>s.channelId===info.channelId)){ log(info.label+' 이미 등록됨'); return; }
+  subs.push({channelId:info.channelId, label:info.label, live:false});
+  saveSubs(); renderSubs();
+  $('#subInput').value='';
+  log(info.label+' 등록됨 — 다음 확인 주기에 라이브 여부 체크');
+});
+
+async function checkSubLive(sub){
+  try{
+    // 채널/live 주소: 방송 중이면 그 라이브의 watch 페이지가 열림
+    const r = await ytGet(`https://www.youtube.com/channel/${sub.channelId}/live?hl=ko`);
+    const player = extractJson(r.text, PLAYER_MARKERS);
+    const vd = player?.videoDetails;
+    const lbd = player?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+    const vid = vd?.videoId;
+    const isLive = !!(vid && (vd.isLive || lbd?.isLiveNow) && (!vd.channelId || vd.channelId===sub.channelId));
+
+    if(isLive){
+      sub.live = true;
+      if(!channels.find(c=>c.videoId===vid)){
+        addChannel(vid);
+        const ch = channels.find(c=>c.videoId===vid);
+        if(ch) ch.subId = sub.channelId;
+        log(`${sub.label} 방송 시작 감지 → 자동 추가`);
+      }
+    } else {
+      sub.live = false;
+    }
+    saveSubs(); renderSubs();
+  }catch(e){ log(`${sub.label} 확인 실패: ${e.message}`, true); renderSubs(); }
+}
+
+async function runMonitor(){
+  const offline = subs.filter(s=>!s.live);
+  for(const s of offline){ await checkSubLive(s); }
+}
+
+$('#monitorIntervalSelect').addEventListener('change', e=>{
+  monitorIntervalMin = parseInt(e.target.value)||0;
+  if(monitorTimer){ clearInterval(monitorTimer); monitorTimer=null; }
+  if(monitorIntervalMin>0){
+    runMonitor();
+    monitorTimer = setInterval(runMonitor, monitorIntervalMin*60000);
+    log(`채널 자동감지 ${monitorIntervalMin}분 주기로 시작`);
+  }
+});
+
+// end-detection + 시청자/구독자 갱신: 각 영상의 watch 페이지를 읽음 (API 키 없음)
+async function checkEnded(){
+  if(channels.length===0) return;
+  try{
+    const results = await Promise.all(channels.map(async c=>{
+      try{ return [c, await fetchWatch(c.videoId)]; }catch(e){ return [c, null]; }
+    }));
+    let endedAny = false;
+    results.forEach(([c, w])=>{
+      if(!w) return; // 네트워크 오류면 이번엔 건너뜀 (실수로 제거하지 않게)
+      if(w.ended || w.playable==='ERROR'){
+        log(`${c.name} 방송 종료 감지 → 자동 제거`);
+        const sub = subs.find(s=>s.channelId===c.subId);
+        if(sub){ sub.live=false; }
+        channels = channels.filter(x=>x!==c);
+        endedAny = true;
+        return;
+      }
+      applyWatchInfo(c, w);
+      if(c.online){
+        const sub = subs.find(s=>s.channelId===c.subId);
+        if(sub) sub.live = true;
+        if(!c.liveChatId && w.chatCont){ c.liveChatId = w.chatCont; c.lastTs = 0; } // 채팅 끊겼던 경우 재연결
+      }
+    });
+    saveSubs(); renderSubs();
+    if(endedAny) renderGrid(); else updateInfoPanels();
+  }catch(e){ log(`상태 확인 오류: ${e.message}`, true); }
+}
+endCheckTimer = setInterval(checkEnded, 60000);
+
+function updateElapsedTicker(){
+  document.querySelectorAll('.elapsed').forEach(el=>{
+    const ch = channels.find(c=>c.id===el.dataset.id);
+    if(ch && ch.startTime) el.textContent = '⏱ '+formatElapsed(ch.startTime);
+  });
+}
+setInterval(updateElapsedTicker, 1000);
+
+// ---- settings backup / restore ----
+$('#exportSettingsBtn').addEventListener('click', ()=>{
+  const backup = {
+    subs: JSON.parse(localStorage.getItem('mvm_subs')||'[]'),
+    terms: JSON.parse(localStorage.getItem('mvm_terms')||'[]'),
+    presets: JSON.parse(localStorage.getItem('mvm_presets')||'{}')
+  };
+  saveTextFile(`multiview-settings-${Date.now()}.json`, JSON.stringify(backup, null, 2), 'application/json');
+});
+
+$('#importSettingsBtn').addEventListener('click', ()=> $('#importFileInput').click());
+$('#importFileInput').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      if(data.subs){ subs = data.subs; saveSubs(); renderSubs(); }
+      if(data.terms){ searchTerms = data.terms; saveTerms(); renderTerms(); }
+      if(data.presets){ savePresets(data.presets); renderPresets(); }
+      log('설정 파일에서 복원 완료');
+    }catch(err){ log('설정 파일을 읽을 수 없음 (형식 오류)', true); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+renderTerms();
+renderSubs();
+renderPresets();
+renderGrid();
+log('모니터 시작됨');
+</script>
+</body>
+</html>
