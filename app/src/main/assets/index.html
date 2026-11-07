@@ -51,6 +51,7 @@
     border-radius:6px; padding:7px 11px; font-size:12.5px; cursor:pointer;
   }
   button:hover{border-color:#3a4048;}
+  button:disabled{opacity:.5; cursor:default;}
   button.primary{background:var(--signal); color:#06110C; border-color:var(--signal); font-weight:600;}
   button.warn{background:var(--spike); color:#241a02; border-color:var(--spike); font-weight:600;}
   button.ghost{background:transparent;}
@@ -194,7 +195,9 @@
     <div id="panelBody">
       <div class="tabPane active" id="tabLive">
         <div class="sec" style="flex:1; min-height:0; display:flex; flex-direction:column;">
-          <h3>채널 상태 <span class="small">(🟢라이브 / ⚪오프라인)</span></h3>
+          <h3>채널 상태 <span class="small">(🟢라이브 / ⚪오프라인)</span>
+            <button class="ghost" id="checkAllBtn" style="float:right; padding:2px 8px; font-size:10.5px;">전체 확인</button>
+          </h3>
           <div class="presetlist" id="subList"></div>
         </div>
         <div class="sec" style="border-bottom:none; flex:0 0 auto;">
@@ -298,6 +301,14 @@
             </div>
           </div>
           <div class="small">상단 "🔴 방송모드" 버튼을 켜면 모든 영상이 이 이미지로 바뀌고, 꺼면 다시 실제 영상이 나와요. 통계 정보는 방송모드 중에도 계속 갱신돼요.</div>
+        </div>
+
+        <div class="sec" id="appInfoSec" style="display:none;">
+          <h3>앱 정보 / 사용 코드</h3>
+          <div class="small mono" id="appInfoText" style="line-height:1.6;"></div>
+          <div class="row" style="margin-top:6px;">
+            <button id="resetCodeBtn" style="flex:1;">사용 코드 변경</button>
+          </div>
         </div>
 
         <div class="sec" style="border-bottom:none;">
@@ -1043,6 +1054,16 @@ async function runMonitor(){
   for(const s of offline){ await checkSubLive(s); }
 }
 
+$('#checkAllBtn').addEventListener('click', async ()=>{
+  if(subs.length===0){ log('등록된 채널이 없음', true); return; }
+  $('#checkAllBtn').textContent = '확인중...';
+  $('#checkAllBtn').disabled = true;
+  for(const s of subs){ await checkSubLive(s); }
+  $('#checkAllBtn').textContent = '전체 확인';
+  $('#checkAllBtn').disabled = false;
+  log('전체 채널 확인 완료');
+});
+
 $('#monitorIntervalSelect').addEventListener('change', e=>{
   monitorIntervalMin = parseInt(e.target.value)||0;
   if(monitorTimer){ clearInterval(monitorTimer); monitorTimer=null; }
@@ -1119,6 +1140,19 @@ $('#importFileInput').addEventListener('change', e=>{
   reader.readAsText(file);
   e.target.value = '';
 });
+
+// ---- app info / access code (Android 앱에서만 표시) ----
+if(Native.has){
+  Native.call({type:'appInfo'}).then(r=>{
+    $('#appInfoSec').style.display = 'block';
+    const upd = r.htmlUpdated ? new Date(r.htmlUpdated).toLocaleString('ko-KR',{hour12:false}) : '-';
+    $('#appInfoText').innerHTML =
+      `사용자: ${r.name||'-'}<br>사용 기한: ${r.expires||'제한 없음'}<br>앱 버전: ${r.version}<br>화면: ${r.htmlSource} (마지막 업데이트 ${upd})`;
+  });
+  $('#resetCodeBtn').addEventListener('click', ()=>{
+    if(confirm('사용 코드를 지우고 다시 입력할까요?')) Native.call({type:'resetCode'});
+  });
+}
 
 renderTerms();
 renderSubs();
